@@ -45,7 +45,13 @@ class PlaylistView @JvmOverloads constructor(
                 btnPageDown.visibility = GONE
                 btnPageUp.visibility = GONE
             } else {
-                currentPage = 0
+                val empty = value.groups.isEmpty()
+                if (empty) {
+                    rvChannels.adapter = null
+                    tvGroupName.text = null
+                } else {
+                    currentPage = 0
+                }
                 val singleGroup = value.groups.size <= 1
                 btnPageDown.visibility = if (singleGroup) GONE else VISIBLE
                 btnPageUp.visibility = if (singleGroup) GONE else VISIBLE
@@ -67,8 +73,9 @@ class PlaylistView @JvmOverloads constructor(
 
     private var currentPage: Int = 0
         set(value) {
+            // An empty playlist (no built-in channels and no cache yet) has no group 0.
+            val group = playlist?.groups?.getOrNull(value) ?: return
             field = value
-            val group = playlist!!.groups[value]
             setCurrentGroup(group)
         }
     var onChannelSelectCallback: ((Channel) -> Unit)? = null
@@ -111,12 +118,14 @@ class PlaylistView @JvmOverloads constructor(
     }
 
     private fun turnPage(down: Boolean) {
-        if (playlist!!.groups.size <= 1) return
-        currentPage = adjustValue(currentPage, playlist!!.groups.size, down)
+        val groups = playlist?.groups ?: return
+        if (groups.size <= 1) return
+        currentPage = adjustValue(currentPage, groups.size, down)
         rvChannels.post { rvChannels.getChildAt(0)?.requestFocus() }
     }
 
     private fun selectChannel(next: Boolean) {
+        if (playlist?.groups.isNullOrEmpty()) return
         if (currentChannel == null) {
             currentChannel = playlist.firstChannel()
         }

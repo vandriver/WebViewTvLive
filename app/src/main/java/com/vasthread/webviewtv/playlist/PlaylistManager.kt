@@ -23,12 +23,16 @@ object PlaylistManager {
     private const val KEY_PLAYLIST_URL = "playlist_url"
     private const val KEY_LAST_UPDATE = "last_update"
     private const val UPDATE_RETRY_DELAY = 10 * 1000L
+    private const val ASSET_PREFIX = "asset://"
 
     private val client = OkHttpClient.Builder().connectTimeout(5, TimeUnit.SECONDS).readTimeout(5, TimeUnit.SECONDS).build()
     private val gson = GsonBuilder().setPrettyPrinting().create()!!
     private val jsonTypeToken = object : TypeToken<List<Channel>>() {}
     private val playlistFile = File(application.filesDir, "playlist.json")
-    private val builtInPlaylists = listOf<Pair<String, String>>()
+
+    // The channel lists that used to be downloaded are gone, so the channels ship inside the apk.
+    // Without them the app has no playlist on a fresh install and the channel list has no group.
+    private val builtInPlaylists = listOf(Pair("默认", "${ASSET_PREFIX}channels.json"))
 
     var onPlaylistChange: ((Playlist) -> Unit)? = null
     var onUpdatePlaylistJobStateChange: ((Boolean) -> Unit)? = null
@@ -48,7 +52,7 @@ object PlaylistManager {
         requestUpdatePlaylist()
     }
 
-    fun getPlaylistUrl() = preference.getString(KEY_PLAYLIST_URL, builtInPlaylists[0].second)!!
+    fun getPlaylistUrl() = preference.getString(KEY_PLAYLIST_URL, builtInPlaylists.first().second)!!
 
     fun setLastUpdate(time: Long, requestUpdate: Boolean = false) {
         preference.edit().putLong(KEY_LAST_UPDATE, time).apply()
@@ -69,11 +73,7 @@ object PlaylistManager {
                 ++times
                 Log.i(TAG, "Updating playlist... times=${times}")
                 try {
-                    val request = Request.Builder().url(getPlaylistUrl()).get().build()
-                    val response = client.newCall(request).execute()
-                    if (!response.isSuccessful) throw Exception("Response code ${response.code}")
-
-                    val remote = response.body!!.string()
+                    val remote = readPlaylist(getPlaylistUrl())
                     val local = runCatching { playlistFile.readText() }.getOrNull()
                     if (remote != local) {
                         playlistFile.writeText(remote)
@@ -94,12 +94,26 @@ object PlaylistManager {
         }
     }
 
+    private fun readPlaylist(url: String): String {
+        val assetName = url.removePrefix(ASSET_PREFIX)
+        if (assetName != url) {
+            return application.assets.open(assetName).bufferedReader().use(BufferedReader::readText)
+        }
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) throw Exception("Response code ${response.code}")
+        return response.body!!.string()
+    }
+
     private fun createPlaylistFromJson(json: String): Playlist {
         val channels = gson.fromJson(json, jsonTypeToken)
         return Playlist.createFromAllChannels("default", channels)
     }
 
-    private fun loadBuiltInPlaylist() = createPlaylistFromJson("[]")
+    private fun loadBuiltInPlaylist(): Playlist {
+        val json = runCatching { readPlaylist(builtInPlaylists.first().second) }.getOrNull()
+        return createPlaylistFromJson(json ?: "[]")
+    }
 
     fun loadPlaylist(): Playlist {
         return try {
